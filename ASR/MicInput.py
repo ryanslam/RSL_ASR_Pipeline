@@ -6,13 +6,13 @@ class MicInput:
     def __init__(self,
                 format=pyaudio.paInt16,
                 channels=1,
-                sampling_rate=16000,
-                chunk_size=1024):
+                sample_rate=16000,
+                chunk_size=512):
         self.audio = pyaudio.PyAudio()
         self.stream = None
         self.format = format
         self.channels = channels
-        self.sampling_rate = sampling_rate
+        self.sample_rate = sample_rate
         self.chunk_size = chunk_size
         
     def _get_usb_mic(self):
@@ -20,9 +20,10 @@ class MicInput:
 
         for device_index in range(device_count):
             device_info = self.audio.get_device_info_by_index(device_index)
+            print(device_info)
             if device_info['maxInputChannels'] > 0:
                 device_name = device_info['name']
-                self.sampling_rate = int(device_info['defaultSampleRate'])
+                self.sample_rate = int(device_info['defaultSampleRate'])
                 if 'USB' in device_name:
                     return (device_index, device_info)
         
@@ -35,7 +36,7 @@ class MicInput:
             print(f"Default Sampling Rate {mic_index[1]['defaultSampleRate']}\n")
             self.stream = self.audio.open(format=self.format,
                                             channels=self.channels,
-                                            rate=self.sampling_rate,
+                                            rate=self.sample_rate,
                                             input=True,
                                             input_device_index=mic_index[0],
                                             frames_per_buffer=self.chunk_size)

@@ -6,11 +6,11 @@ import time
 
 
 
-voice = MicInput(chunk_size=16000)
+voice = MicInput(chunk_size=512, sample_rate=16000)
 voice.initialize_audio_stream()
 VAD = VoiceActivityDetector(repo='snakers4/silero-vad', 
                             model='silero_vad', 
-                            sampling_rate=voice.sampling_rate)
+                            sample_rate=voice.sample_rate)
 
 try:
     while True:

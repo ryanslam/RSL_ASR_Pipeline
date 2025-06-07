@@ -1,6 +1,7 @@
 import torch
+import torchaudio
 import numpy as np
-import librosa
+from torchaudio.transforms import Resample
 
 class VoiceActivityDetector:
 
@@ -13,7 +14,7 @@ class VoiceActivityDetector:
                                         model=kwargs['model'],
                                         force_reload=True)
 
-            self.sampling_rate = kwargs['sampling_rate']
+            self.sample_rate = kwargs['sample_rate']
             self.get_speech_timestamps = utils[0]
             self.model = model.to(self.device)
             vad_init = True
@@ -22,18 +23,26 @@ class VoiceActivityDetector:
         finally:
             print(f"VAD initialization status: {vad_init}")
 
-    def _audio_to_tensor(self, audio_data, target_sampling_rate):
-        np_audio = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
-        # Expected sampling rate for silero is 8000 or 16000
-        if self.sampling_rate != target_sampling_rate:
-            np_audio = librosa.resample(np_audio.astype(np.float32),
-                                          orig_sr=self.sampling_rate,
-                                          target_sr=target_sampling_rate)
-        np_audio /= 32768.0
-        # print(np_audio)
-        return torch.from_numpy(np_audio)
+    def _audio_to_tensor(self, audio_data, target_sample_rate):
+        audio_tensor = torch.tensor(np.frombuffer(audio_data, dtype=np.int16), dtype=torch.float32)
+        
+        # Normalize to range [-1, 1]
+        audio_tensor /= 32768.0
 
-    def process_audio(self, audio_data, target_sampling_rate=16000):
-        audio_tensor = self._audio_to_tensor(audio_data, target_sampling_rate)
-        # print(audio_tensor)
-        return self.get_speech_timestamps(audio_tensor, self.model, sampling_rate=target_sampling_rate, return_seconds=True)
+        print(f"Audio tensor shape: {audio_tensor.shape}")
+
+        if self.sample_rate != target_sample_rate:
+            resampler = Resample(orig_freq=self.sample_rate, new_freq=target_sample_rate)
+            audio_tensor = resampler(audio_tensor)
+            print(f"Resampled tensor shape: {audio_tensor.shape}")
+
+        return audio_tensor
+
+    def process_audio(self, audio_data, target_sample_rate=16000):
+        audio_tensor = self._audio_to_tensor(audio_data, target_sample_rate)
+        print(f"Processing audio with shape: {audio_tensor.shape}")
+        
+        timestamps = self.get_speech_timestamps(audio_tensor, self.model, sampling_rate=target_sample_rate)
+        print(f"Timestamps: {timestamps}")
+        
+        return timestamps
