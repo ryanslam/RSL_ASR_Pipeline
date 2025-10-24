@@ -1,138 +1,100 @@
-import torch
-import numpy as np
-from collections import deque
 import sounddevice as sd
-import torchaudio.transforms as T
-import queue
-import threading
 
-# --- Load Silero VAD ---
-MODEL, utils = torch.hub.load("snakers4/silero-vad", "silero_vad", force_reload=False)
-(get_speech_timestamps, _, _, _, _) = utils
-TARGET_SAMPLE_RATE = 16000  # Silero expects 16kHz
 
-# --- End-of-Utterance Detector ---
-class EOUDetector:
-    def __init__(self, min_silence_sec=1.0, vad_window_sec=0.3, max_buffer_sec=10):
-        self.min_silence_samples = int(min_silence_sec * TARGET_SAMPLE_RATE)
-        self.vad_window_samples = int(vad_window_sec * TARGET_SAMPLE_RATE)
-        self.max_buffer_samples = int(max_buffer_sec * TARGET_SAMPLE_RATE)
+class AudioListener:
+    def __init__(self, stream):
+        self.stream = stream
 
-        self.last_speech_sample = 0
-        self.total_samples = 0
-        self.active = False
+    def listen(self):
+        if self.stream:
+            self.stream.start()
 
-        self.buffer = deque(maxlen=self.max_buffer_samples)
-        self.vad_buffer = deque(maxlen=self.vad_window_samples)
+    def stop_listening(self):
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()
 
-    def process_block(self, audio_tensor: torch.Tensor):
-        self.buffer.extend(audio_tensor.tolist())
-        self.vad_buffer.extend(audio_tensor.tolist())
-        self.total_samples += len(audio_tensor)
 
-        if len(self.vad_buffer) >= self.vad_window_samples:
-            vad_input = torch.tensor(list(self.vad_buffer))
-            segments = get_speech_timestamps(vad_input, MODEL, sampling_rate=TARGET_SAMPLE_RATE)
+class InputDevicesBuilder:
 
-            if segments:
-                self.last_speech_sample = self.total_samples - len(vad_input) + segments[-1]['end']
-                self.active = True
-            else:
-                if self.active and (self.total_samples - self.last_speech_sample) >= self.min_silence_samples:
-                    self.active = False
-                    utterance = list(self.buffer)[-self.min_silence_samples:]
-                    return True, np.array(utterance)
-        return False, None
+    def __init__(self):
+        self.input_devices = {}
+        self.microphone = None
+        self.sample_rate = None
+        self.block_size = None
+        self.chunk_size = 512
+        self.target_sample_rate = None
+        self.callback_fn = self.default_callback
 
-# --- Resampler wrapper ---
-class ResampleIfNeeded:
-    def __init__(self, device_samplerate: int, target_sr: int = TARGET_SAMPLE_RATE):
-        self.device_sr = int(device_samplerate)
-        self.target_sr = target_sr
-        if self.device_sr != self.target_sr:
-            self.resampler = T.Resample(orig_freq=self.device_sr, new_freq=self.target_sr)
-            print(f"[Info] Resampling from {self.device_sr} Hz -> {self.target_sr} Hz")
-        else:
-            self.resampler = None
+    def list_input_devices(self):
+        if not self.input_devices:
+            self.input_devices = self.get_input_devices()
 
-    def process(self, block: np.ndarray) -> torch.Tensor:
-        audio_tensor = torch.from_numpy(block.astype(np.float32))
-        if audio_tensor.ndim > 1:
-            audio_tensor = audio_tensor.mean(dim=1)
-        if audio_tensor.abs().max() > 1.0:
-            audio_tensor = audio_tensor / 32768.0
-        if self.resampler:
-            audio_tensor = self.resampler(audio_tensor)
-        return audio_tensor
+        for idx, dev in self.input_devices.items():
+            print(f'{idx}: {dev["name"]}')
 
-# --- Mic Stream wrapper ---
-class MicStream:
-    def __init__(self, device_index=None, chunk_size=512, detector: EOUDetector = None):
-        self.device_index = device_index
-        self.chunk_size = chunk_size
-        self.detector = detector
-        self.q = queue.Queue()  # for real-time utterance retrieval
+        return self
 
-        dev_info = sd.query_devices(self.device_index)
-        self.device_sr = int(dev_info['default_samplerate'])
-        print(f"[Info] Opening stream at device native rate: {self.device_sr} Hz")
+    def get_input_devices(self):
+        input_devices = {}
+        for idx, dev in enumerate(sd.query_devices()):
+            if dev["max_input_channels"] > 0:
+                input_devices[dev["index"]] = dev
+        return input_devices
 
-        self.resampler = ResampleIfNeeded(self.device_sr)
+    def set_input_device(self, dev_idx):
+        if not self.input_devices:
+            self.input_devices = self.get_input_devices()
+        if dev_idx not in self.input_devices:
+            raise ValueError(f"No input device found for index {dev_idx}")
+        self.microphone = self.input_devices[dev_idx]
+        self.sample_rate = self.microphone["default_samplerate"]
 
-        self.stream = sd.InputStream(
-            device=self.device_index,
-            channels=1,
-            samplerate=self.device_sr,
-            blocksize=self.chunk_size,
-            dtype='float32',
-            callback=self._callback
+        return self
+
+    def set_callback_function(self, callback_fn):
+        self.callback_fn = callback_fn
+        return self
+
+    def default_callback(self, indata, frames, time, status):
+        raise NotImplementedError(
+            "No callback function set. Please provide a callback using set_callback_function()."
         )
 
-    def _callback(self, indata, frames, time_info, status):
-        if status:
-            print(status)
-        mono = indata[:, 0] if indata.ndim > 1 else indata
-        audio_16k = self.resampler.process(mono)
-        if self.detector:
-            eou, utterance = self.detector.process_block(audio_16k)
-            if eou:
-                self.q.put(utterance)  # push completed utterance to queue
+    def set_sample_rate(self, sample_rate: int):
+        if self.sample_rate != sample_rate:
+            self.target_sample_rate = sample_rate
 
-    def start(self):
-        self.stream.start()
+        return self
 
-    def stop(self):
-        self.stream.stop()
-        self.stream.close()
+    def set_chunk_size(self, chunk_size: int):
+        self.chunk_size = chunk_size
 
-    def get_utterance(self, timeout=None):
+        return self
+
+    def build(self):
         try:
-            return self.q.get(timeout=timeout)
-        except queue.Empty:
-            return None
+            if not self.target_sample_rate:
+                self.target_sample_rate = int(self.sample_rate)
 
-# --- Usage Example ---
-if __name__ == "__main__":
-    # List available input devices
-    print("Available input devices:")
-    for idx, dev in enumerate(sd.query_devices()):
-        if dev['max_input_channels'] > 0:
-            print(f"{idx}: {dev['name']} (Default SR: {dev['default_samplerate']})")
+            self.block_size = int(
+                self.chunk_size * (self.sample_rate / self.target_sample_rate)
+            )
 
-    device_idx = int(input("Select device index: "))
-
-    detector = EOUDetector(min_silence_sec=1.0, vad_window_sec=0.3)
-    mic = MicStream(device_index=device_idx, chunk_size=512, detector=detector)
-
-    mic.start()
-    print("Listening... Press Ctrl+C to stop.")
-
-    try:
-        while True:
-            utterance = mic.get_utterance(timeout=0.1)
-            if utterance is not None:
-                print(f"[Utterance received] {len(utterance)} samples")
-                # Here you can feed it to ASR
-    except KeyboardInterrupt:
-        mic.stop()
-        print("Stopped.")
+            stream = AudioListener(
+                sd.InputStream(
+                    samplerate=self.sample_rate,
+                    blocksize=self.block_size,
+                    device=self.microphone["index"],
+                    channels=1,
+                    dtype="float32",
+                    callback=self.callback_fn,
+                )
+            )
+            return stream
+        except (KeyError, ValueError) as e:
+            raise RuntimeError(f"Device configuration error: {e}")
+        except sd.PortAudioError as e:
+            raise RuntimeError(f"Audio stream error: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Unknown error during build: {e}")
