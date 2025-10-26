@@ -14,11 +14,14 @@ class MicStreamBuilder:
         self.chunk_size = None
         self.dev_idx = None
         self.dev_sr = None
+        self.speaking = False
 
         # Optional variables (Useful for VAD).
         self.resampler = None
         self.target_sr = None
         self.eou_detector = None
+
+        self.test_buffer = []
 
         self._list_input_devices()
 
@@ -57,6 +60,11 @@ class MicStreamBuilder:
 
         return self
 
+    def set_callback(self, callback):
+        self._callback = callback
+
+        return self
+
     def build(self):
         if not self.dev_idx:
             self.dev_idx, dev_info = self._set_default_mic()
@@ -89,15 +97,26 @@ class MicStreamBuilder:
     def _callback(self, indata, frames, time, status):
         if status:
             print(status)
+            
+        logging.info("Received audio block")
 
-        # Ensure audio data is mono.
-        mono = indata[:, 0] if indata.ndim > 1 else indata
+        # # Ensure audio data is mono.
+        # mono = indata[:, 0] if indata.ndim > 1 else indata
 
-        if self.resampler:
-            mono = self.resampler.process(mono)
+        # if self.resampler:
+        #     mono = self.resampler.process(mono)
 
-        if self.eou_detector:
-            self.eou_detector.process_block(mono)
+        # if self.eou_detector:
+        #     is_speech = self.eou_detector.process_block(mono)
+        #     if is_speech:
+        #         self.speaking = True
+        #         self.test_buffer.append(mono)
+        #     elif self.speaking and not is_speech:
+        #         print('end of utterance detected')
+        #         self.speaking = False
+        #         print(self.test_buffer)
+        #         self.test_buffer.clear()
+        #         print(self.test_buffer)
 
     def _list_input_devices(self):
         dev_info = sd.query_devices()

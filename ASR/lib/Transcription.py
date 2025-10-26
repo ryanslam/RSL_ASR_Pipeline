@@ -46,7 +46,7 @@ class TranscriberBuilder:
 
     def build(self):
         whisper_model = whisperx.load_model(
-            model=self.model_size,
+            self.model_size,
             device=self.device,
             vad_method=self.vad,
             compute_type=self.compute_type,
