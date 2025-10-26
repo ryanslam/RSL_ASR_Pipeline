@@ -3,6 +3,7 @@ import logging
 
 DEFAULT_CHUNK_SIZE = 512
 
+
 class MicStreamBuilder:
     def __init__(self):
         logging.basicConfig(
@@ -70,7 +71,7 @@ class MicStreamBuilder:
             logging.warning(
                 f"No chunk size has been set. Defaulting to {self.chunk_size}"
             )
-            
+
         if self.resampler:
             self.resampler.init_resampler(self.dev_sr, self.target_sr)
 
@@ -143,12 +144,7 @@ class MicStreamBuilder:
 
 
 def main():
-    input_stream = (
-        MicStreamBuilder()
-        .set_chunk_size()
-        .set_dev_idx(10)
-        .build()
-    )
+    input_stream = MicStreamBuilder().set_chunk_size().set_dev_idx(10).build()
     input_stream.start()
     input_stream.stop()
 

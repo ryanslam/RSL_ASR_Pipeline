@@ -6,9 +6,7 @@ TARGET_SAMPLE_RATE = 16000
 
 
 class AudioResampler:
-    def __init__(
-        self, dev_sr: int = None, target_sr: int = TARGET_SAMPLE_RATE
-    ):
+    def __init__(self, dev_sr: int = None, target_sr: int = TARGET_SAMPLE_RATE):
         self.device_sr = None
         self.target_sr = None
         self.resampler = None

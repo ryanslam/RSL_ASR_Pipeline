@@ -6,6 +6,7 @@ MODEL, utils = torch.hub.load("snakers4/silero-vad", "silero_vad", force_reload=
 (get_speech_timestamps, _, _, _, _) = utils
 TARGET_SAMPLE_RATE = 16000
 
+
 class EOUDetector:
     def __init__(self, min_silence_sec=1.0, vad_window_sec=0.3, max_buffer_sec=10):
         self.min_silence_samples = int(min_silence_sec * TARGET_SAMPLE_RATE)
@@ -28,16 +29,24 @@ class EOUDetector:
         # only run VAD if sliding window is full
         if len(self.vad_buffer) >= self.vad_window_samples:
             vad_input = torch.tensor(list(self.vad_buffer))
-            segments = get_speech_timestamps(vad_input, MODEL, sampling_rate=TARGET_SAMPLE_RATE)
+            segments = get_speech_timestamps(
+                vad_input, MODEL, sampling_rate=TARGET_SAMPLE_RATE
+            )
 
             if segments:
-                self.last_speech_sample = self.total_samples - len(vad_input) + segments[-1]['end']
+                self.last_speech_sample = (
+                    self.total_samples - len(vad_input) + segments[-1]["end"]
+                )
                 self.active = True
             else:
-                if self.active and (self.total_samples - self.last_speech_sample) >= self.min_silence_samples:
+                if (
+                    self.active
+                    and (self.total_samples - self.last_speech_sample)
+                    >= self.min_silence_samples
+                ):
                     self.active = False
                     print("End of utterance detected!")
-                    utterance = list(self.buffer)[-self.min_silence_samples:]
+                    utterance = list(self.buffer)[-self.min_silence_samples :]
                     return True, np.array(utterance)
 
         return False, None
