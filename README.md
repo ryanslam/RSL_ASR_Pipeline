@@ -1,4 +1,4 @@
-# Active Speech Recognition Pipeline Repository.
+# Active Speech Recognition Pipeline Repository
 This repository implements active speech recognition to allow for voice input. The goal of this project is to act as a modular application that detects user speech and transcribes it.
 The resulting text will be accessible via a ZMQ Pub/Sub topic.
 
