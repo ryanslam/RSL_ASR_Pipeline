@@ -1,100 +1,157 @@
 import sounddevice as sd
+import logging
 
+DEFAULT_CHUNK_SIZE = 512
 
-class AudioListener:
-    def __init__(self, stream):
-        self.stream = stream
-
-    def listen(self):
-        if self.stream:
-            self.stream.start()
-
-    def stop_listening(self):
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
-
-
-class InputDevicesBuilder:
-
+class MicStreamBuilder:
     def __init__(self):
-        self.input_devices = {}
-        self.microphone = None
-        self.sample_rate = None
-        self.block_size = None
-        self.chunk_size = 512
-        self.target_sample_rate = None
-        self.callback_fn = self.default_callback
-
-    def list_input_devices(self):
-        if not self.input_devices:
-            self.input_devices = self.get_input_devices()
-
-        for idx, dev in self.input_devices.items():
-            print(f'{idx}: {dev["name"]}')
-
-        return self
-
-    def get_input_devices(self):
-        input_devices = {}
-        for idx, dev in enumerate(sd.query_devices()):
-            if dev["max_input_channels"] > 0:
-                input_devices[dev["index"]] = dev
-        return input_devices
-
-    def set_input_device(self, dev_idx):
-        if not self.input_devices:
-            self.input_devices = self.get_input_devices()
-        if dev_idx not in self.input_devices:
-            raise ValueError(f"No input device found for index {dev_idx}")
-        self.microphone = self.input_devices[dev_idx]
-        self.sample_rate = self.microphone["default_samplerate"]
-
-        return self
-
-    def set_callback_function(self, callback_fn):
-        self.callback_fn = callback_fn
-        return self
-
-    def default_callback(self, indata, frames, time, status):
-        raise NotImplementedError(
-            "No callback function set. Please provide a callback using set_callback_function()."
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
         )
 
-    def set_sample_rate(self, sample_rate: int):
-        if self.sample_rate != sample_rate:
-            self.target_sample_rate = sample_rate
+        # Core stream variables, will be defaulted if not explicitly set.
+        self.chunk_size = None
+        self.dev_idx = None
+        self.dev_sr = None
+
+        # Optional variables (Useful for VAD).
+        self.resampler = None
+        self.target_sr = None
+        self.eou_detector = None
+
+        self._list_input_devices()
+
+    def set_dev_idx(self, device_idx):
+        try:
+            self.dev_idx = device_idx
+            dev_info = sd.query_devices(self.dev_idx)
+            self.dev_sr = int(dev_info["default_samplerate"])
+
+            self._list_device_info(self.dev_idx)
+        except sd.PortAudioError as e:
+            self.dev_idx = None
+            logging.error(f"Selected index is not available. {e}.")
 
         return self
 
-    def set_chunk_size(self, chunk_size: int):
+    def set_chunk_size(self, chunk_size: int = DEFAULT_CHUNK_SIZE):
         self.chunk_size = chunk_size
 
         return self
 
+    def set_resampler(self, resampler, target_sr):
+        """
+        Uses resampler built using the abstract Audio class.
+        """
+        self.resampler = resampler
+        self.target_sr = target_sr
+
+        return self
+
+    def set_eou_detector(self, detector):
+        """
+        Uses end of utterance detector using the EndOfUtteranceDetector class.
+        """
+        self.eou_detector = detector
+
+        return self
+
     def build(self):
-        try:
-            if not self.target_sample_rate:
-                self.target_sample_rate = int(self.sample_rate)
-
-            self.block_size = int(
-                self.chunk_size * (self.sample_rate / self.target_sample_rate)
+        if not self.dev_idx:
+            self.dev_idx, dev_info = self._set_default_mic()
+            self.dev_sr = int(dev_info["default_samplerate"])
+            logging.warning(
+                f"No Device set. Defaulting to microphone at idx: {self.dev_idx}"
             )
+            self._list_device_info(self.dev_idx)
 
-            stream = AudioListener(
-                sd.InputStream(
-                    samplerate=self.sample_rate,
-                    blocksize=self.block_size,
-                    device=self.microphone["index"],
-                    channels=1,
-                    dtype="float32",
-                    callback=self.callback_fn,
-                )
+        if not self.chunk_size:
+            self.chunk_size = DEFAULT_CHUNK_SIZE
+            logging.warning(
+                f"No chunk size has been set. Defaulting to {self.chunk_size}"
             )
-            return stream
-        except (KeyError, ValueError) as e:
-            raise RuntimeError(f"Device configuration error: {e}")
-        except sd.PortAudioError as e:
-            raise RuntimeError(f"Audio stream error: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Unknown error during build: {e}")
+            
+        if self.resampler:
+            self.resampler.init_resampler(self.dev_sr, self.target_sr)
+
+        self.stream = sd.InputStream(
+            device=self.dev_idx,
+            channels=1,
+            samplerate=self.dev_sr,
+            blocksize=self.chunk_size,
+            dtype="float32",
+            callback=self._callback,
+        )
+
+        return self
+
+    def _callback(self, indata, frames, time, status):
+        if status:
+            print(status)
+
+        # Ensure audio data is mono.
+        mono = indata[:, 0] if indata.ndim > 1 else indata
+
+        if self.resampler:
+            mono = self.resampler.process(mono)
+
+        if self.eou_detector:
+            self.eou_detector.process_block(mono)
+
+    def _list_input_devices(self):
+        dev_info = sd.query_devices()
+
+        print("\n=====Available Input Devices=====")
+        for idx, info in enumerate(dev_info):
+            if info["max_input_channels"] > 0:
+                mic_name = info["name"]
+                print(f"\t{mic_name} at index: {idx}")
+        print()
+
+    def _set_default_mic(self):
+        input_devices = []
+        for idx, dev_info in enumerate(sd.query_devices()):
+            if dev_info["max_input_channels"] > 0:
+                input_devices.append((idx, dev_info))
+
+        if not input_devices:
+            raise ValueError("No Input Devices Currently Detected.")
+
+        default_microphone = input_devices[0]
+
+        return default_microphone
+
+    def _list_device_info(self, dev_idx):
+        dev_info = sd.query_devices(dev_idx)
+
+        print(f"\n=====DEVICE INFO (idx: {self.dev_idx})=====")
+        for key, val in dev_info.items():
+            print(f"\t{key}: {val}")
+
+        print()
+
+        return None
+
+    def start(self):
+        logging.info("Starting Audio Stream")
+        self.stream.start()
+
+    def stop(self):
+        logging.info("Stopping Audio Stream")
+        self.stream.stop()
+        self.stream.close()
+
+
+def main():
+    input_stream = (
+        MicStreamBuilder()
+        .set_chunk_size()
+        .set_dev_idx(10)
+        .build()
+    )
+    input_stream.start()
+    input_stream.stop()
+
+
+if __name__ == "__main__":
+    main()
