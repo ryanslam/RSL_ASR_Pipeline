@@ -2,16 +2,25 @@ from lib.AudioInputDevices import MicStreamBuilder
 from lib.AudioResampler import AudioResampler
 from lib.EndOfUtteranceDetector import EOUDetector
 from lib.Transcription import Transcriber, TranscriberBuilder
+from lib.zmq_publisher import publish_to, close_socket
 import torch
 
 TARGET_SR = 16000
 
 def main():
+    speech_pub = publish_to(port=5555, bind=True)
+
     test_buffer = []
     resampler = AudioResampler()
     detector = EOUDetector()
     started_speaking = False
-    transcriber = TranscriberBuilder().set_device().set_vad('silero').set_whisper_model("large-v3").build()
+    transcriber = (
+                    TranscriberBuilder()
+                    .set_device()
+                    .set_vad('silero')
+                    .set_whisper_model("large-v3")
+                    .build()
+                    )
     
     def test_callback(indata, frames, time, status):
         nonlocal started_speaking 
@@ -35,6 +44,7 @@ def main():
                 audio_tensor = torch.cat(test_buffer)
                 user_speech = transcriber.transcribe(audio_tensor)
                 print(user_speech)
+                speech_pub.send_string(user_speech['segments'][-1]['text'])
                 if(user_speech['segments']):
                     print(user_speech['segments'][-1]['text'])
                 test_buffer.clear()
