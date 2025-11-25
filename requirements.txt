@@ -1,0 +1,6 @@
+numpy==2.0.2
+pyzmq==27.1.0
+sounddevice==0.5.3
+torch==2.8.0
+torchaudio>=2.8.0
+whisperx==3.7.4

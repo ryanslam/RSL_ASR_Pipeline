@@ -97,7 +97,7 @@ class MicStreamBuilder:
     def _callback(self, indata, frames, time, status):
         if status:
             print(status)
-            
+
         logging.info("Received audio block")
 
         # # Ensure audio data is mono.

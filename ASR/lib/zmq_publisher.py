@@ -1,11 +1,12 @@
 import zmq
 
-def publish_to(addr='0.0.0.0', port=None, bind=False) -> zmq.Socket:
-    context = zmq.context()
+
+def publish_to(protocol="tcp", addr="0.0.0.0", port=None, bind=False) -> zmq.Socket:
+    context = zmq.Context()
     socket = context.socket(zmq.PUB)
 
     if port:
-        addr = f"{addr}:{port}"
+        addr = f"{protocol}://{addr}:{port}"
     if bind:
         socket.bind(addr)
     else:
@@ -13,8 +14,9 @@ def publish_to(addr='0.0.0.0', port=None, bind=False) -> zmq.Socket:
 
     return socket
 
+
 def close_socket(socket) -> None:
     socket.close()
     socket.context.term()
-    
+
     return None

@@ -1,73 +1,84 @@
 from lib.AudioInputDevices import MicStreamBuilder
 from lib.AudioResampler import AudioResampler
 from lib.EndOfUtteranceDetector import EOUDetector
-from lib.Transcription import Transcriber, TranscriberBuilder
-from lib.zmq_publisher import publish_to, close_socket
+from lib.Transcription import TranscriberBuilder
+
 import torch
 
-TARGET_SR = 16000
 
-def main():
-    speech_pub = publish_to(port=5555, bind=True)
+class ASRInitializer:
+    def __init__(
+        self,
+        whisper_model="large-v3",
+        min_silence_sec=1.5,
+        target_sr=16000,
+        chunk_size=512,
+        dev_idx=10,
+    ):
+        self.resampler = AudioResampler()
+        self.detector = EOUDetector(min_silence_sec=min_silence_sec)
+        self.transcriber = (
+            TranscriberBuilder()
+            .set_device()
+            .set_vad("silero")
+            .set_whisper_model(whisper_model)
+            .build()
+        )
 
-    test_buffer = []
-    resampler = AudioResampler()
-    detector = EOUDetector()
-    started_speaking = False
-    transcriber = (
-                    TranscriberBuilder()
-                    .set_device()
-                    .set_vad('silero')
-                    .set_whisper_model("large-v3")
-                    .build()
-                    )
-    
-    def test_callback(indata, frames, time, status):
-        nonlocal started_speaking 
+        self.target_sr = target_sr
+        self.chunk_size = chunk_size
+        self.dev_idx = dev_idx
+
+        self.speech_buffer = []
+        self.lookback_buffer = []
+        self.lookback_duration_sec = 1.0
+        self.lookback_max_samples = int(self.lookback_duration_sec * target_sr)
+        self.was_speaking = False
+        self.user_speech = None
+
+    def _audio_input_callback(self, indata, frames, time, status):
         if status:
             print(status)
 
-        # Ensure audio data is mono.
         mono = indata[:, 0] if indata.ndim > 1 else indata
 
-        if resampler:
-            mono = resampler.process(mono)
+        if self.resampler:
+            mono = self.resampler.process(mono)
 
-        if detector:
-            is_speech = detector.process_block(mono)
-            if is_speech:
-                started_speaking = True
-                test_buffer.append(mono)
-            elif started_speaking and not is_speech:
-                print('end of utterance detected')
-                started_speaking = False
-                audio_tensor = torch.cat(test_buffer)
-                user_speech = transcriber.transcribe(audio_tensor)
-                print(user_speech)
-                speech_pub.send_string(user_speech['segments'][-1]['text'])
-                if(user_speech['segments']):
-                    print(user_speech['segments'][-1]['text'])
-                test_buffer.clear()
+        self.lookback_buffer.append(mono)
+        total_lookback_samples = sum(len(chunk) for chunk in self.lookback_buffer)
+        while total_lookback_samples > self.lookback_max_samples:
+            removed = self.lookback_buffer.pop(0)
+            total_lookback_samples -= len(removed)
 
-    input_stream = MicStreamBuilder().set_chunk_size(512).set_dev_idx(10).set_callback(test_callback)
-    if isinstance(resampler, AudioResampler):
-        input_stream.set_resampler(resampler, TARGET_SR)
-    if isinstance(detector, EOUDetector):
-        input_stream.set_eou_detector(detector)
+        is_speech = self.detector.process_block(mono) if self.detector else True
 
-    input_stream.build()
+        if is_speech and not self.was_speaking:
+            print(f"Recording speech...")
+            if self.lookback_buffer:
+                for chunk in self.lookback_buffer[:-1]:
+                    self.speech_buffer.append(chunk)
 
-    input_stream.start()
-    print("Listening... Press Ctrl+C to stop.")
-    import time
+        if is_speech:
+            self.speech_buffer.append(mono)
+        else:
+            if self.speech_buffer:
+                audio_tensor = torch.cat(self.speech_buffer)
+                self.user_speech = self.transcriber.transcribe(audio_tensor)["segments"]
+                self.speech_buffer.clear()
 
-    try:
-        while True:
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        input_stream.stop()
-        print("Stopped.")
+        self.was_speaking = is_speech
 
-
-if __name__ == "__main__":
-    main()
+    def build_input_stream(self):
+        input_stream = (
+            MicStreamBuilder()
+            .set_chunk_size(self.chunk_size)
+            .set_dev_idx(self.dev_idx)
+            .set_callback(self._audio_input_callback)
+        )
+        if isinstance(self.resampler, AudioResampler):
+            input_stream.set_resampler(self.resampler, self.target_sr)
+        if isinstance(self.detector, EOUDetector):
+            input_stream.set_eou_detector(self.detector)
+        input_stream.build()
+        return input_stream

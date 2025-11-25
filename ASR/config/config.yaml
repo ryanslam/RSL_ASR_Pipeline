@@ -1,0 +1,15 @@
+zmq:
+  publish_text: true
+  protocol: "tcp"
+  addr: "0.0.0.0"
+  port: 5555
+  bind: true
+  topic: "transcribed_speech"
+
+asr:
+  eou_silence: 1.5
+  whisper_model: "base"
+  target_sr: 16000
+  chunk_size: 512
+  mic: 10
+  suppress_whisperx_logs: true
