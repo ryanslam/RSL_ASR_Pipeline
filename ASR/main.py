@@ -13,7 +13,7 @@ def main():
     args = parser.parse_args()
     conf = load_config(args)
 
-    if conf["asr"].get("suppress_whisperx_logs", False):
+    if conf["asr"].get("silence_logs", False):
         logging.getLogger("whisperx").setLevel(logging.ERROR)
         logging.getLogger("whisperx.asr").setLevel(logging.ERROR)
         logging.getLogger("whisperx.vads").setLevel(logging.ERROR)
@@ -54,7 +54,7 @@ def main():
 
     stream = ASR.build_input_stream()
     stream.start()
-    print("Listening... Press Ctrl+C to stop.")
+    print("Listening... Press Ctrl+C to stop.\n")
 
     try:
         while True:
@@ -78,7 +78,7 @@ def main():
         stream.stop()
         if speech_pub:
             close_socket(speech_pub)
-        print("Stopped.")
+        print("ASR Stopped")
 
 
 def init_arg_parser():
@@ -88,24 +88,24 @@ def init_arg_parser():
     )
 
     parser.add_argument(
-        "--config", type=str, default="./config/config.yaml", help="YAML config file."
+        "--config", type=str, metavar="", default="./config/config.yaml", help="YAML config file."
     )
 
     # ZMQ overrides
-    parser.add_argument("--publish_text", type=bool)
-    parser.add_argument("--zmq_protocol", type=str)
-    parser.add_argument("--zmq_addr", type=str)
-    parser.add_argument("--zmq_port", type=int)
-    parser.add_argument("--zmq_bind", type=bool)
-    parser.add_argument("--zmq_topic", type=str)
+    parser.add_argument("--publish_text", type=bool, metavar="", help="Enables speech transcription publishing via ZMQ.")
+    parser.add_argument("--zmq_protocol", type=str, metavar="", help=f"Set the protocol. Available options: {ZMQ_PROTOCOLS}")
+    parser.add_argument("--zmq_addr", type=str, metavar="", help="IP address to publish to.")
+    parser.add_argument("--zmq_port", type=int, metavar="", help="Specified port to publish to.")
+    parser.add_argument("--zmq_bind", type=bool, metavar="", help="Select if you want the publisher to bind.")
+    parser.add_argument("--zmq_topic", type=str, metavar="", help="Specific ZMQ topic to publish to.")
 
     # ASR overrides
-    parser.add_argument("--eou_silence", type=float)
-    parser.add_argument("--whisper_model", type=str)
-    parser.add_argument("--target_sr", type=int)
-    parser.add_argument("--chunk_size", type=int)
-    parser.add_argument("--mic", type=int)
-    parser.add_argument("--suppress_whisperx_logs", type=bool)
+    parser.add_argument("--eou_silence", type=float, metavar="", help="Duration of silence required to begin transcribing.")
+    parser.add_argument("--whisper_model", type=str, metavar="", help=f"Transcription model. Options are: {WHISPER_MODELS}")
+    parser.add_argument("--target_sr", type=int, metavar="", help="Target sample rate. VAD requires 16khz.")
+    parser.add_argument("--chunk_size", type=int, metavar="", help="Chunk size to be sent.")
+    parser.add_argument("--mic", type=int, metavar="", help="Microphone index for selected input device.")
+    parser.add_argument("--silence_logs", type=bool, metavar="", help="Silences debugging information from whisper.")
 
     return parser
 
@@ -130,7 +130,7 @@ def load_config(args):
                 "target_sr": 16000,
                 "chunk_size": 512,
                 "mic": 10,
-                "suppress_whisperx_logs": True,
+                "silence_logs": True,
             },
         }
 
@@ -146,7 +146,7 @@ def load_config(args):
         "asr.target_sr": args.target_sr,
         "asr.chunk_size": args.chunk_size,
         "asr.mic": args.mic,
-        "asr.suppress_whisperx_logs": args.suppress_whisperx_logs,
+        "asr.silence_logs": args.silence_logs,
     }
 
     for key, val in overrides.items():

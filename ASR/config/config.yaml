@@ -12,4 +12,4 @@ asr:
   target_sr: 16000
   chunk_size: 512
   mic: 10
-  suppress_whisperx_logs: true
+  silence_logs: true
