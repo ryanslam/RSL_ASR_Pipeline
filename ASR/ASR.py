@@ -10,7 +10,8 @@ class ASRInitializer:
     def __init__(
         self,
         whisper_model="large-v3",
-        min_silence_sec=1.5,
+        min_silence_sec=1,
+        lang_code=None,
         target_sr=16000,
         chunk_size=512,
         dev_idx=10,
@@ -24,6 +25,8 @@ class ASRInitializer:
             .set_whisper_model(whisper_model)
             .build()
         )
+        self.lang_code = lang_code
+        print(f"lang code bias: {self.lang_code}")
 
         self.target_sr = target_sr
         self.chunk_size = chunk_size
@@ -64,7 +67,7 @@ class ASRInitializer:
         else:
             if self.speech_buffer:
                 audio_tensor = torch.cat(self.speech_buffer)
-                self.user_speech = self.transcriber.transcribe(audio_tensor)["segments"]
+                self.user_speech = self.transcriber.transcribe(audio_tensor, self.lang_code)["segments"]
                 self.speech_buffer.clear()
 
         self.was_speaking = is_speech

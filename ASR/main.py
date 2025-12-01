@@ -49,6 +49,7 @@ def main():
     ASR = ASRInitializer(
         whisper_model=asr_conf["whisper_model"],
         min_silence_sec=asr_conf["eou_silence"],
+        lang_code=asr_conf["lang_code"],
         dev_idx=asr_conf["mic"],
     )
 
@@ -88,24 +89,82 @@ def init_arg_parser():
     )
 
     parser.add_argument(
-        "--config", type=str, metavar="", default="./config/config.yaml", help="YAML config file."
+        "--config",
+        type=str,
+        metavar="",
+        default="./config/config.yaml",
+        help="YAML config file.",
     )
 
     # ZMQ overrides
-    parser.add_argument("--publish_text", type=bool, metavar="", help="Enables speech transcription publishing via ZMQ.")
-    parser.add_argument("--zmq_protocol", type=str, metavar="", help=f"Set the protocol. Available options: {ZMQ_PROTOCOLS}")
-    parser.add_argument("--zmq_addr", type=str, metavar="", help="IP address to publish to.")
-    parser.add_argument("--zmq_port", type=int, metavar="", help="Specified port to publish to.")
-    parser.add_argument("--zmq_bind", type=bool, metavar="", help="Select if you want the publisher to bind.")
-    parser.add_argument("--zmq_topic", type=str, metavar="", help="Specific ZMQ topic to publish to.")
+    parser.add_argument(
+        "--publish_text",
+        type=bool,
+        metavar="",
+        help="Enables speech transcription publishing via ZMQ.",
+    )
+    parser.add_argument(
+        "--zmq_protocol",
+        type=str,
+        metavar="",
+        help=f"Set the protocol. Available options: {ZMQ_PROTOCOLS}",
+    )
+    parser.add_argument(
+        "--zmq_addr", type=str, metavar="", help="IP address to publish to."
+    )
+    parser.add_argument(
+        "--zmq_port", type=int, metavar="", help="Specified port to publish to."
+    )
+    parser.add_argument(
+        "--zmq_bind",
+        type=bool,
+        metavar="",
+        help="Select if you want the publisher to bind.",
+    )
+    parser.add_argument(
+        "--zmq_topic", type=str, metavar="", help="Specific ZMQ topic to publish to."
+    )
 
     # ASR overrides
-    parser.add_argument("--eou_silence", type=float, metavar="", help="Duration of silence required to begin transcribing.")
-    parser.add_argument("--whisper_model", type=str, metavar="", help=f"Transcription model. Options are: {WHISPER_MODELS}")
-    parser.add_argument("--target_sr", type=int, metavar="", help="Target sample rate. VAD requires 16khz.")
-    parser.add_argument("--chunk_size", type=int, metavar="", help="Chunk size to be sent.")
-    parser.add_argument("--mic", type=int, metavar="", help="Microphone index for selected input device.")
-    parser.add_argument("--silence_logs", type=bool, metavar="", help="Silences debugging information from whisper.")
+    parser.add_argument(
+        "--eou_silence",
+        type=float,
+        metavar="",
+        help="Duration of silence required to begin transcribing.",
+    )
+    parser.add_argument(
+        "--whisper_model",
+        type=str,
+        metavar="",
+        help=f"Transcription model. Options are: {WHISPER_MODELS}",
+    )
+    parser.add_argument(
+        "--target_sr",
+        type=int,
+        metavar="",
+        help="Target sample rate. VAD requires 16khz.",
+    )
+    parser.add_argument(
+        "--chunk_size", type=int, metavar="", help="Chunk size to be sent."
+    )
+    parser.add_argument(
+        "--mic",
+        type=int,
+        metavar="",
+        help="Microphone index for selected input device.",
+    )
+    parser.add_argument(
+        "--silence_logs",
+        type=bool,
+        metavar="",
+        help="Silences debugging information from whisper.",
+    )
+    parser.add_argument(
+        "--lang_code",
+        type=str,
+        metavar="",
+        help="Impose language bias upon whisper transcription model."
+    )
 
     return parser
 
@@ -131,6 +190,7 @@ def load_config(args):
                 "chunk_size": 512,
                 "mic": 10,
                 "silence_logs": True,
+                "lang_code": "en"
             },
         }
 
@@ -147,6 +207,7 @@ def load_config(args):
         "asr.chunk_size": args.chunk_size,
         "asr.mic": args.mic,
         "asr.silence_logs": args.silence_logs,
+        "asr.lang_code": args.lang_code,
     }
 
     for key, val in overrides.items():

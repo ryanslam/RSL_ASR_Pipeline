@@ -7,8 +7,8 @@ class Transcriber:
     def __init__(self, whisper_model):
         self.whisper_model = whisper_model
 
-    def transcribe(self, audio_bytes):
-        return self.whisper_model.transcribe(audio_bytes)
+    def transcribe(self, audio_bytes, lang_code: None | str = None):
+        return self.whisper_model.transcribe(audio_bytes, language=lang_code)
 
 
 class TranscriberBuilder:

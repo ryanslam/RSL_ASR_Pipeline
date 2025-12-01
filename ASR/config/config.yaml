@@ -7,9 +7,10 @@ zmq:
   topic: "transcribed_speech"
 
 asr:
-  eou_silence: 1.5
+  eou_silence: 1
   whisper_model: "base"
   target_sr: 16000
   chunk_size: 512
   mic: 10
   silence_logs: true
+  lang_code: "en"       # Uses ISO 639-1
